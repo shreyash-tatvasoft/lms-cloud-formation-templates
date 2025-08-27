@@ -1,0 +1,367 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: React App Deployment with S3, CloudFront, GitHub CI/CD
+
+Parameters:
+  GitHubRepo:
+    Type: String
+    Description: GitHub repository in the format owner/repo
+  GitHubBranch:
+    Type: String
+    Default: main
+    Description: GitHub branch to deploy from
+  CodeStarConnectionArn:
+    Type: String
+    Description: ARN of the CodeStar Connection for GitHub
+  BackendURL:
+    Type: String
+    Description: "Backend ALB endpoint"
+
+Resources:
+  # -------------------- S3 Bucket --------------------
+  WebsiteBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: "lms-frontend-bucket-created-on-2508"
+      VersioningConfiguration:
+        Status: Enabled
+      WebsiteConfiguration:
+        IndexDocument: index.html
+        ErrorDocument: index.html
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  WebsiteOAC:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: Access Identity for S3 bucket
+  
+  WebsiteBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref WebsiteBucket
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ${WebsiteOAC}"
+            Action: "s3:GetObject"
+            Resource: !Sub "${WebsiteBucket.Arn}/*"
+
+  WebsiteDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: S3Origin
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: ["GET", "HEAD"]
+          CachedMethods: ["GET", "HEAD"]
+          ForwardedValues:
+            QueryString: false
+        Origins:
+          - Id: S3Origin
+            DomainName: !GetAtt WebsiteBucket.RegionalDomainName
+            S3OriginConfig: 
+              OriginAccessIdentity: !Sub "origin-access-identity/cloudfront/${WebsiteOAC}"
+        DefaultRootObject: index.html
+        CustomErrorResponses:
+          - ErrorCode: 404
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+          - ErrorCode: 403
+            ResponsePagePath: /index.html
+            ResponseCode: 200
+            ErrorCachingMinTTL: 0
+
+  # -------------------- CodeBuild --------------------
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "${WebsiteBucket.Arn}/*"
+                  - !GetAtt WebsiteBucket.Arn
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # -------------------- Lambda Role ------------------
+  InvalidateLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvalidateCloudFrontPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobSuccessResult
+                  - codepipeline:PutJobFailureResult
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+  # -------------------- Lambda Function --------------
+  InvalidateLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: InvalidateLambda
+      Handler: index.handler
+      Role: !GetAtt InvalidateLambdaRole.Arn
+      Runtime: nodejs18.x
+      Timeout: 60
+      Environment:
+        Variables:
+          CLOUDFRONT_ID: !Ref WebsiteDistribution
+      Code:
+        ZipFile: |
+          const { CloudFrontClient, CreateInvalidationCommand } = require("@aws-sdk/client-cloudfront");
+          const { CodePipelineClient, PutJobSuccessResultCommand, PutJobFailureResultCommand } = require("@aws-sdk/client-codepipeline");
+
+          const client = new CloudFrontClient({});
+          const codePipelineClient = new CodePipelineClient({});
+
+          exports.handler = async (event, context) => {
+            const distributionId = process.env.CLOUDFRONT_ID;
+            const jobId = event["CodePipeline.job"]?.id;
+            console.log("Invalidating CloudFront distribution:", distributionId);
+
+            try {
+              const result = await client.send(
+                new CreateInvalidationCommand({
+                  DistributionId: distributionId,
+                  InvalidationBatch: {
+                    CallerReference: `${Date.now()}`,
+                    Paths: {
+                      Quantity: 1,
+                      Items: ["/*"],
+                    },
+                  },
+                })
+              );
+
+              console.log("Invalidation successful:", result.Invalidation.Id);
+              
+              // Report success back to CodePipeline
+              if (jobId) {
+                  await codePipelineClient.send(
+                  new PutJobSuccessResultCommand({ jobId })
+                );
+              }
+              return { status: "SUCCESS", invalidationId: result.Invalidation.Id };
+            } catch (err) {
+              console.error("Invalidation failed:", err);
+
+               // Report failure back to CodePipeline
+               if (jobId) {
+                  await codePipelineClient.send(
+                    new PutJobFailureResultCommand({
+                      jobId,
+                      failureDetails: {
+                        message: err.message,
+                        type: "JobFailed",
+                        externalExecutionId: context.awsRequestId,
+                      },
+                    })
+                  );
+                }
+              throw err;
+            }
+          };
+
+
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub "${AWS::StackName}-build"
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:5.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: S3_BUCKET
+            Value: !Ref WebsiteBucket
+          - Name: CLOUDFRONT_ID
+            Value: !Ref WebsiteDistribution
+          - Name: VITE_BACK_END_URL
+            Value: !Ref BackendURL
+      Source:
+        Type: CODEPIPELINE
+      Cache:
+        Type: NO_CACHE
+      TimeoutInMinutes: 10
+
+
+  # -------------------- CodePipeline --------------------
+  CodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodePipelineAccess
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StartBuild
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - codestar-connections:UseConnection
+                Resource: !Ref CodeStarConnectionArn
+              - Effect: Allow
+                Action:
+                  - lambda:InvokeFunction
+                Resource: !GetAtt InvalidateLambda.Arn
+
+  ReactAppPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: ReactAppPipeline
+      RoleArn: !GetAtt CodePipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref WebsiteBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: "1"
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                ConnectionArn: !Ref CodeStarConnectionArn
+                FullRepositoryId: !Ref GitHubRepo
+                BranchName: !Ref GitHubBranch
+        - Name: Build
+          Actions:
+            - Name: BuildAction
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: "1"
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+        - Name : ManualApproval
+          Actions:
+            - Name: Approval
+              ActionTypeId:
+                Category: Approval
+                Owner: AWS
+                Provider: Manual
+                Version: "1"
+              Configuration:
+                CustomData: "Please approve this deployment before proceeding."
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: DeployToS3
+              ActionTypeId: 
+                Category: Deploy
+                Owner: AWS
+                Provider: S3
+                Version: "1"
+              InputArtifacts: 
+                - Name: BuildOutput
+              Configuration:
+                BucketName: !Ref WebsiteBucket
+                Extract: true
+              RunOrder: 2
+            
+            - Name: InvalidateLambda
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Provider: Lambda
+                Version: "1"
+              Configuration:
+                FunctionName: !Ref InvalidateLambda
+              RunOrder: 3
+
+Outputs:
+  WebsiteURL:
+    Value: !GetAtt WebsiteBucket.WebsiteURL
+    Description: S3 Website URL
+  CloudFrontURL:
+    Value: !Sub "https://${WebsiteDistribution.DomainName}"
+    Description: CloudFront Distribution URL
+  WebsiteBucketName:
+    Value: !Ref WebsiteBucket
+    Description: "S3 Bucket name for deployment"
+  CloudFrontDistributionId:
+    Value: !Ref WebsiteDistribution
+    Description: "CloudFront Distribution ID"

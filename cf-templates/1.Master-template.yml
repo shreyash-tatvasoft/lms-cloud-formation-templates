@@ -1,0 +1,139 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Master Stack for VPC + RDS Setup
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for the first public subnet
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for the second public subnet
+  
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.0.3.0/24
+    Description: CIDR block for the first private subnet
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.0.4.0/24
+    Description: CIDR block for the second private subnet
+  
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 KeyPair for SSH access
+  
+  CodeStarConnectionArn:
+    Type: String
+    Description: ARN of CodeStar Connection (for GitHub)
+  
+  GitHubRepoBE:
+    Type: String
+    Description: GitHub repository in the format owner/repo for BE Setup
+
+  GitHubBranchBE:
+    Type: String
+    Default: main
+  
+  JwtSecretKey:
+    Type: String
+    Default: supersecretjwtkey
+  
+  GitHubRepoFE:
+    Type: String
+    Description: GitHub repository in the format owner/repo for FE Setup
+
+  GitHubBranchFE:
+    Type: String
+    Default: main
+
+Resources:
+  # VPC Stack
+  VPCStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: Template-URL from S3
+      Parameters:
+        VpcCIDR : !Ref VpcCIDR
+        PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
+        PublicSubnet2CIDR: !Ref PublicSubnet2CIDR
+        PrivateSubnet1CIDR: !Ref PrivateSubnet1CIDR
+        PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
+      TimeoutInMinutes: 10
+
+  # RDS Stack
+  RDSStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCStack
+    Properties:
+      TemplateURL: Template-URL from S3
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
+        Subnet2: !GetAtt VPCStack.Outputs.PrivateSubnet2
+      TimeoutInMinutes: 15
+  
+  # BE Stack with CI/CD
+  BackendStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: RDSStack
+    Properties:
+      TemplateURL: Template-URL from S3
+      Parameters:
+        InstanceType: t2.micro
+        VpcId: !GetAtt VPCStack.Outputs.VpcId 
+        PublicSubnets: 
+          Fn::Join:
+            - ","              # delimiter
+            -                  # list starts here
+              - !GetAtt VPCStack.Outputs.PublicSubnet1
+              - !GetAtt VPCStack.Outputs.PublicSubnet2
+        PrivateSubnets: 
+          Fn::Join:
+            - ","              # delimiter
+            -                  # list starts here
+              - !GetAtt VPCStack.Outputs.PrivateSubnet1
+              - !GetAtt VPCStack.Outputs.PrivateSubnet2
+        CodeStarConnectionArn: !Ref CodeStarConnectionArn 
+        GitHubRepo: !Ref GitHubRepoBE
+        GitHubBranch: !Ref GitHubBranchBE
+        JwtSecret: !Ref JwtSecretKey 
+        RDSStackName: !GetAtt RDSStack.Outputs.RDSSecurityGroupId
+        KeyName : !Ref KeyName
+      TimeoutInMinutes: 10
+  
+  # FE Stack with CI/CD
+  FrontendStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: BackendStack
+    Properties:
+      TemplateURL: Template-URL from S3
+      Parameters:
+        CodeStarConnectionArn: !Ref CodeStarConnectionArn 
+        GitHubRepo: !Ref GitHubRepoFE
+        GitHubBranch: !Ref GitHubBranchFE
+        BackendURL: !GetAtt BackendStack.Outputs.BackendCloudFrontURL
+      TimeoutInMinutes: 10
+
+Outputs:
+  RDSInstanceEndpoint:
+    Description: RDS instance EndPoint
+    Value: !GetAtt RDSStack.Outputs.DBEndpoint
+
+  BackendURL:
+    Description: Back end URL Info
+    Value: !GetAtt BackendStack.Outputs.BackendCloudFrontURL
+
+  FrontendURL:
+    Description: Front end URL Info
+    Value: !GetAtt FrontendStack.Outputs.CloudFrontURL
+
+  
