@@ -63,10 +63,23 @@ Resources:
           ToPort: 443
           CidrIp: 0.0.0.0/0
 
+  # Bastion Host Security Group (for Public Subnet)
+  BastionHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH from the internet to Bastion Host
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0   # Allow SSH from anywhere to bastion Host
+
+  # Private EC2 Security Group
   EC2SecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: Allow traffic from ALB to EC2 on port 8000
+      GroupDescription: Allow traffic from ALB to EC2 on port 8000 and SSH From Bastion Host
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -76,7 +89,7 @@ Resources:
         - IpProtocol: tcp
           FromPort: 22
           ToPort: 22
-          CidrIp: 0.0.0.0/0
+          SourceSecurityGroupId: !Ref BastionHostSecurityGroup
 
   # ---------------------- ALB & Target Group ----------------------
   ApplicationLoadBalancer:
@@ -242,6 +255,11 @@ Resources:
         ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
         InstanceType: !Ref InstanceType
         KeyName: !Ref KeyName
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: App-Server
         IamInstanceProfile:
           Name: !Ref EC2InstanceProfile
         SecurityGroupIds:
@@ -310,7 +328,7 @@ Resources:
   ArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "lms-backend-artifact-bucket-created-on-2508"
+      BucketName: "lms-backend-artifact-08-2025"
     
   # ---------------------- CodeDeploy ----------------------
   CodeDeployApp:

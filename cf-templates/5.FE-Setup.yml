@@ -21,7 +21,7 @@ Resources:
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "lms-frontend-bucket-created-on-2508"
+      BucketName: "lms-frontend-08-2025"
       VersioningConfiguration:
         Status: Enabled
       WebsiteConfiguration:
