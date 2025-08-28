@@ -54,13 +54,17 @@ Parameters:
   GitHubBranchFE:
     Type: String
     Default: main
+  
+  SubscriberEmail:
+    Type: String
+    Description: Email address to subscribe to SNS topic
 
 Resources:
   # VPC Stack
   VPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: Template-URL from S3
+      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/2.VPC-Setup.yml
       Parameters:
         VpcCIDR : !Ref VpcCIDR
         PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
@@ -74,7 +78,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: VPCStack
     Properties:
-      TemplateURL: Template-URL from S3
+      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/3.RDS-Setup.yml
       Parameters:
         VpcId: !GetAtt VPCStack.Outputs.VpcId
         Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
@@ -86,7 +90,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: RDSStack
     Properties:
-      TemplateURL: Template-URL from S3
+      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/4.BE-Setup.yml
       Parameters:
         InstanceType: t2.micro
         VpcId: !GetAtt VPCStack.Outputs.VpcId 
@@ -108,6 +112,7 @@ Resources:
         JwtSecret: !Ref JwtSecretKey 
         RDSStackName: !GetAtt RDSStack.Outputs.RDSSecurityGroupId
         KeyName : !Ref KeyName
+        AlarmEmail: !Ref SubscriberEmail
       TimeoutInMinutes: 10
   
   # FE Stack with CI/CD
@@ -115,7 +120,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: BackendStack
     Properties:
-      TemplateURL: Template-URL from S3
+      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/5.FE-Setup.yml
       Parameters:
         CodeStarConnectionArn: !Ref CodeStarConnectionArn 
         GitHubRepo: !Ref GitHubRepoFE
@@ -135,5 +140,3 @@ Outputs:
   FrontendURL:
     Description: Front end URL Info
     Value: !GetAtt FrontendStack.Outputs.CloudFrontURL
-
-  

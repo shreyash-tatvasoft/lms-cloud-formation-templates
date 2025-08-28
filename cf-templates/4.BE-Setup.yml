@@ -36,6 +36,9 @@ Parameters:
   RDSStackName:
     Type: String
     Description: "The stack name of the RDS stack"
+  AlarmEmail:
+    Type: String
+    Description: Email address to subscribe to SNS topic
 
 Mappings:
   RegionMap:
@@ -427,7 +430,7 @@ Resources:
                 ApplicationName: !Ref CodeDeployApp
                 DeploymentGroupName: !Ref CodeDeployDeploymentGroup
 
-    # ---------------------- CloudFront ----------------------
+  # ---------------------- CloudFront ----------------------
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
@@ -453,6 +456,63 @@ Resources:
               HTTPSPort: 443
               OriginProtocolPolicy: http-only
         DefaultRootObject: ""
+
+  # ----------------------- SNS Topic for CPU Alarm ------------------------
+  AsgCpuAlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: App-Server-SNS
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref AlarmEmail
+
+  # ------------------------ CloudWatch Alarm for ASG CPU -------------------
+  AsgCpuUtilizationAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: "Alarm if average CPU utilization of ASG goes above 50%"
+      Namespace: AWS/EC2
+      MetricName: CPUUtilization
+      Dimensions:
+        - Name: AutoScalingGroupName
+          Value: !Ref AutoScalingGroup   # <-- Direct reference to ASG resource
+      Statistic: Average
+      Period: 300                        # 5 minutes (set 60 if detailed monitoring enabled)
+      EvaluationPeriods: 1
+      Threshold: 50
+      ComparisonOperator: GreaterThanThreshold
+      AlarmActions:
+        - !Ref AsgCpuAlarmTopic
+      OKActions:
+        - !Ref AsgCpuAlarmTopic
+      Unit: Percent
+
+  # ------------------------ CloudWatch Dashboard for ASG CPU ----------------------
+  AsgCpuUtilizationDashboard:
+    Type: AWS::CloudWatch::Dashboard
+    Properties:
+      DashboardName: !Sub "App-Server-CloudWatch-Dashboard"
+      DashboardBody: !Sub |
+        {
+          "widgets": [
+            {
+              "type": "metric",
+              "x": 0,
+              "y": 0,
+              "width": 12,
+              "height": 6,
+              "properties": {
+                "metrics": [
+                  [ "AWS/EC2", "CPUUtilization", "AutoScalingGroupName", "${AutoScalingGroup}" ]
+                ],
+                "period": 300,
+                "stat": "Average",
+                "region": "${AWS::Region}",
+                "title": "CPU Utilization for ASG: ${AutoScalingGroup}"
+              }
+            }
+          ]
+        }
 
 Outputs:
   ALBURL:
