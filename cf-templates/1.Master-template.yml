@@ -58,6 +58,18 @@ Parameters:
   SubscriberEmail:
     Type: String
     Description: Email address to subscribe to SNS topic
+  
+  UseAuroraForDB:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Set to true to deploy Aurora DB instead of standard RDS"
+
+
+Conditions:
+  UseAurora: !Equals [!Ref UseAuroraForDB, "true"]
+  UseRDS: !Equals [!Ref UseAuroraForDB, "false"]
+    
 
 Resources:
   # VPC Stack
@@ -73,8 +85,9 @@ Resources:
         PrivateSubnet2CIDR: !Ref PrivateSubnet2CIDR
       TimeoutInMinutes: 10
 
-  # RDS Stack
+  # RDS Stack with MySql
   RDSStack:
+    Condition: UseRDS
     Type: AWS::CloudFormation::Stack
     DependsOn: VPCStack
     Properties:
@@ -85,10 +98,22 @@ Resources:
         Subnet2: !GetAtt VPCStack.Outputs.PrivateSubnet2
       TimeoutInMinutes: 15
   
+  # RDS For Aurora
+  AuroraStack:
+    Condition: UseAurora
+    Type: AWS::CloudFormation::Stack
+    DependsOn: VPCStack
+    Properties:
+      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/6.RDS-Aurora.yml
+      Parameters:
+        VpcId: !GetAtt VPCStack.Outputs.VpcId
+        Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
+        Subnet2: !GetAtt VPCStack.Outputs.PrivateSubnet2
+      TimeoutInMinutes: 15
+  
   # BE Stack with CI/CD
   BackendStack:
     Type: AWS::CloudFormation::Stack
-    DependsOn: RDSStack
     Properties:
       TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/4.BE-Setup.yml
       Parameters:
@@ -110,7 +135,10 @@ Resources:
         GitHubRepo: !Ref GitHubRepoBE
         GitHubBranch: !Ref GitHubBranchBE
         JwtSecret: !Ref JwtSecretKey 
-        RDSStackName: !GetAtt RDSStack.Outputs.RDSSecurityGroupId
+        RDSStackName: !If
+          - UseAurora
+          - !GetAtt AuroraStack.Outputs.RDSSecurityGroupId
+          - !GetAtt RDSStack.Outputs.RDSSecurityGroupId
         KeyName : !Ref KeyName
         AlarmEmail: !Ref SubscriberEmail
       TimeoutInMinutes: 10
@@ -131,7 +159,10 @@ Resources:
 Outputs:
   RDSInstanceEndpoint:
     Description: RDS instance EndPoint
-    Value: !GetAtt RDSStack.Outputs.DBEndpoint
+    Value: !If
+      - UseAurora
+      - !GetAtt AuroraStack.Outputs.DBEndpoint
+      - !GetAtt RDSStack.Outputs.DBEndpoint
 
   BackendURL:
     Description: Back end URL Info

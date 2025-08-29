@@ -1,0 +1,173 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Aurora MySQL Setup with Auto-Generated Password in SSM (Single-AZ, minimal cost)
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC where Aurora will be launched
+
+  Subnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: First subnet for DB subnet group (private preferred)
+
+  Subnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: Second subnet for DB subnet group (private preferred)
+
+  DBUsername:
+    Type: String
+    Default: admin
+    Description: Master username for Aurora MySQL
+
+  DBName:
+    Type: String
+    Default: library_db
+    Description: Initial database name
+
+Resources:
+  ## Aurora Security Group (allows MySQL only from Backend EC2 SG)
+  MyDBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Aurora Security Group"
+      VpcId: !Ref VpcId
+
+  ## DB Subnet Group
+  MyDBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: "Subnet group for Aurora MySQL"
+      SubnetIds:
+        - !Ref Subnet1
+        - !Ref Subnet2
+      DBSubnetGroupName: "my-aurora-subnet-group"
+
+  ## Lambda Role
+  PasswordLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+
+  ## Lambda Function to Generate Password
+  PasswordGeneratorLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Role: !GetAtt PasswordLambdaRole.Arn
+      Runtime: python3.9
+      Timeout: 60
+      Code:
+        ZipFile: |
+          import boto3, secrets, string, json, urllib3
+
+          http = urllib3.PoolManager()
+
+          def send_response(event, context, response_status, response_data):
+              response_body = json.dumps({
+                  "Status": response_status,
+                  "Reason": f"See the details in CloudWatch Log Stream: {context.log_stream_name}",
+                  "PhysicalResourceId": event.get("PhysicalResourceId", context.log_stream_name),
+                  "StackId": event['StackId'],
+                  "RequestId": event['RequestId'],
+                  "LogicalResourceId": event['LogicalResourceId'],
+                  "Data": response_data
+              })
+
+              headers = {
+                  "content-type": "",
+                  "content-length": str(len(response_body))
+              }
+              response = http.request("PUT", event["ResponseURL"], body=response_body, headers=headers)
+              print("CFN response:", response.status)
+
+          def handler(event, context):
+              try:
+                  if event['RequestType'] in ['Create', 'Update']:
+                      alphabet = string.ascii_letters + string.digits
+                      password = ''.join(secrets.choice(alphabet) for i in range(16))
+
+                      ssm = boto3.client('ssm')
+                      ssm.put_parameter(
+                          Name='/myapp/DB_PASS',
+                          Value=password,
+                          Type='SecureString',
+                          Overwrite=True
+                      )
+
+                      send_response(event, context, "SUCCESS", {"Password": password})
+                  elif event['RequestType'] == 'Delete':
+                      ssm = boto3.client('ssm')
+                      ssm.delete_parameter(Name='/myapp/DB_PASS')
+                      send_response(event, context, "SUCCESS", {})
+              except Exception as e:
+                  print("Error:", str(e))
+                  send_response(event, context, "FAILED", {"Message": str(e)})
+
+  ## Custom Resource to Trigger Password Generation
+  GenerateDBPassword:
+    Type: Custom::GeneratePassword
+    Properties:
+      ServiceToken: !GetAtt PasswordGeneratorLambda.Arn
+
+  ## Aurora DB Cluster
+  MyAuroraCluster:
+    Type: AWS::RDS::DBCluster
+    Properties:
+      Engine: aurora-mysql
+      EngineVersion: "8.0.mysql_aurora.3.05.2"   # Aurora MySQL 8.x version
+      DatabaseName: !Ref DBName
+      MasterUsername: !Ref DBUsername
+      MasterUserPassword: !GetAtt GenerateDBPassword.Password
+      DBSubnetGroupName: !Ref MyDBSubnetGroup
+      VpcSecurityGroupIds:
+        - !Ref MyDBSecurityGroup
+      BackupRetentionPeriod: 1
+      DeletionProtection: false
+
+  ## Aurora DB Instance (Single-AZ)
+  MyAuroraInstance:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBClusterIdentifier: !Ref MyAuroraCluster
+      DBInstanceClass: db.t4g.medium
+      Engine: aurora-mysql
+      PubliclyAccessible: false
+
+  ## Store DB User/Name/Host in SSM
+  DBUserSecretParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/myapp/DB_USER"
+      Type: String
+      Value: !Ref DBUsername
+  
+  DBNameSecretParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/myapp/DB_NAME"
+      Type: String
+      Value: !Ref DBName
+
+  DBHostSecretParameter:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: "/myapp/DB_HOST"
+      Type: String
+      Value: !GetAtt MyAuroraCluster.Endpoint.Address
+
+Outputs:
+  DBEndpoint:
+    Description: "Aurora MySQL Cluster Endpoint"
+    Value: !GetAtt MyAuroraCluster.Endpoint.Address
+  RDSSecurityGroupId:
+    Description: "Security Group ID for Aurora"
+    Value: !Ref MyDBSecurityGroup
