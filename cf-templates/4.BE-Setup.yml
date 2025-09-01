@@ -65,6 +65,9 @@ Resources:
           FromPort: 443
           ToPort: 443
           CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: lms-dev-be-alb-sg
 
   # Bastion Host Security Group (for Public Subnet)
   BastionHostSecurityGroup:
@@ -77,6 +80,9 @@ Resources:
           FromPort: 22
           ToPort: 22
           CidrIp: 0.0.0.0/0   # Allow SSH from anywhere to bastion Host
+      Tags:
+        - Key: Name
+          Value: lms-dev-be-sg-bastion-host
 
   # Private EC2 Security Group
   EC2SecurityGroup:
@@ -93,12 +99,15 @@ Resources:
           FromPort: 22
           ToPort: 22
           SourceSecurityGroupId: !Ref BastionHostSecurityGroup
+      Tags:
+        - Key: Name
+          Value: lms-dev-be-sg-ec2
 
   # ---------------------- ALB & Target Group ----------------------
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
     Properties:
-      Name: NodeAppALB
+      Name: lms-dev-be-alb
       Scheme: internet-facing
       SecurityGroups:
         - !Ref ALBSecurityGroup
@@ -108,7 +117,7 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       VpcId: !Ref VpcId
-      Name: albTG
+      Name: lms-dev-be-tg
       Port: 8000
       Protocol: HTTP
       TargetType: instance
@@ -254,6 +263,7 @@ Resources:
   EC2LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
+      LaunchTemplateName: lms-dev-be-lt
       LaunchTemplateData:
         ImageId: !FindInMap [RegionMap, !Ref "AWS::Region", AMI]
         InstanceType: !Ref InstanceType
@@ -262,7 +272,7 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: App-Server
+                Value: lms-dev-be-ec2
         IamInstanceProfile:
           Name: !Ref EC2InstanceProfile
         SecurityGroupIds:
@@ -317,6 +327,7 @@ Resources:
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
+      AutoScalingGroupName: lms-dev-be-asg
       VPCZoneIdentifier: !Ref PrivateSubnets
       LaunchTemplate:
         LaunchTemplateId: !Ref EC2LaunchTemplate
@@ -331,7 +342,7 @@ Resources:
   ArtifactBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "lms-backend-artifact-08-2025"
+      BucketName: "lms-dev-be-s3-09-2025"
     
   # ---------------------- CodeDeploy ----------------------
   CodeDeployApp:
@@ -355,7 +366,7 @@ Resources:
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: NodeAppBuild
+      Name: lms-dev-be-node-build
       ServiceRole: !Ref CodeBuildRole
       Artifacts:
         Type: CODEPIPELINE
@@ -371,7 +382,7 @@ Resources:
   CodePipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: NodeAppPipeline
+      Name: lms-dev-be-pipeline
       RoleArn: !GetAtt CodePipelineRole.Arn
       ArtifactStore:
         Type: S3
@@ -407,7 +418,7 @@ Resources:
                 ProjectName: !Ref CodeBuildProject
         - Name: Approval
           Actions:
-            - Name: ManualApprovalAction
+            - Name: ManualApproval
               ActionTypeId: 
                 Category: Approval
                 Owner: AWS
@@ -434,6 +445,9 @@ Resources:
   CloudFrontDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
+      Tags:
+          - Key: Name
+            Value: lms-dev-be-cloudfront
       DistributionConfig:
         Enabled: true
         DefaultCacheBehavior:
@@ -491,7 +505,7 @@ Resources:
   AsgCpuUtilizationDashboard:
     Type: AWS::CloudWatch::Dashboard
     Properties:
-      DashboardName: !Sub "App-Server-CloudWatch-Dashboard"
+      DashboardName: lms-dev-be-cloudwatch-dashboard
       DashboardBody: !Sub |
         {
           "widgets": [

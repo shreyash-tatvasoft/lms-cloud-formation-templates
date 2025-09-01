@@ -21,7 +21,7 @@ Resources:
   WebsiteBucket:
     Type: AWS::S3::Bucket
     Properties:
-      BucketName: "lms-frontend-08-2025"
+      BucketName: "lms-dev-fe-s3-09-2025"
       VersioningConfiguration:
         Status: Enabled
       WebsiteConfiguration:
@@ -55,6 +55,9 @@ Resources:
   WebsiteDistribution:
     Type: AWS::CloudFront::Distribution
     Properties:
+      Tags:
+          - Key: Name
+            Value: lms-dev-fe-cloudfront
       DistributionConfig:
         Enabled: true
         DefaultCacheBehavior:
@@ -220,7 +223,7 @@ Resources:
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: !Sub "${AWS::StackName}-build"
+      Name: lms-dev-fe-react-build
       ServiceRole: !GetAtt CodeBuildRole.Arn
       Artifacts:
         Type: CODEPIPELINE
@@ -282,7 +285,7 @@ Resources:
   ReactAppPipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: ReactAppPipeline
+      Name: lms-dev-fe-pipeline
       RoleArn: !GetAtt CodePipelineRole.Arn
       ArtifactStore:
         Type: S3

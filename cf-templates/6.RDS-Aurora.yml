@@ -31,6 +31,9 @@ Resources:
     Properties:
       GroupDescription: "Aurora Security Group"
       VpcId: !Ref VpcId
+      Tags:
+        - Key: Name
+          Value: lms-dev-db-aurora-sg
 
   ## DB Subnet Group
   MyDBSubnetGroup:
@@ -40,7 +43,7 @@ Resources:
       SubnetIds:
         - !Ref Subnet1
         - !Ref Subnet2
-      DBSubnetGroupName: "my-aurora-subnet-group"
+      DBSubnetGroupName: "lms-dev-db-aurora-subnet"
 
   ## Lambda Role
   PasswordLambdaRole:
