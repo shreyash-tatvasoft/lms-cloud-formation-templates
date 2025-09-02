@@ -14,7 +14,10 @@ Parameters:
     Description: ARN of the CodeStar Connection for GitHub
   BackendURL:
     Type: String
-    Description: "Backend ALB endpoint"
+    Description: "Backend ALB endpoint"    
+  InvalidateCloudFrontLambdaRole:
+    Type: String
+    Description: Lambda Role for CloudFront Invalidation
 
 Resources:
   # -------------------- S3 Bucket --------------------
@@ -95,7 +98,7 @@ Resources:
               Service: codebuild.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: CodeBuildAccess
+        - PolicyName: lms-dev-fe-policy-codebuild-access
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -119,45 +122,13 @@ Resources:
                   - logs:PutLogEvents
                 Resource: "*"
 
-  # -------------------- Lambda Role ------------------
-  InvalidateLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      Policies:
-        - PolicyName: InvalidateCloudFrontPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cloudfront:CreateInvalidation
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - codepipeline:PutJobSuccessResult
-                  - codepipeline:PutJobFailureResult
-                Resource: "*"
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                Resource: "*"
-
   # -------------------- Lambda Function --------------
   InvalidateLambda:
     Type: AWS::Lambda::Function
     Properties:
       FunctionName: InvalidateLambda
       Handler: index.handler
-      Role: !GetAtt InvalidateLambdaRole.Arn
+      Role: !Ref InvalidateCloudFrontLambdaRole
       Runtime: nodejs18.x
       Timeout: 60
       Environment:
@@ -257,7 +228,7 @@ Resources:
               Service: codepipeline.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: CodePipelineAccess
+        - PolicyName: lms-dev-fe-policy-codepipeline-access
           PolicyDocument:
             Version: "2012-10-17"
             Statement:

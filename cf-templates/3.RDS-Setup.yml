@@ -23,6 +23,10 @@ Parameters:
     Type: String
     Default: library_db
     Description: Initial database name
+    
+  PasswordLambdaRole:
+    Type: String
+    Description: Lambda Role
 
 Resources:
   ## RDS Security Group (allows MySQL only from Backend EC2 SG)
@@ -45,27 +49,12 @@ Resources:
         - !Ref Subnet2
       DBSubnetGroupName: "lms-dev-db-subnet"
 
-  ## Lambda Role
-  PasswordLambdaRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action: sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
-        - arn:aws:iam::aws:policy/AmazonSSMFullAccess
-
   ## Lambda Function to Generate Password
   PasswordGeneratorLambda:
     Type: AWS::Lambda::Function
     Properties:
       Handler: index.handler
-      Role: !GetAtt PasswordLambdaRole.Arn
+      Role: !Ref PasswordLambdaRole
       Runtime: python3.9
       Timeout: 60
       Code:

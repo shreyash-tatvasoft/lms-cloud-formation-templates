@@ -1,0 +1,201 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "IAM Roles & Policies for LMS Dev Environment"
+
+Parameters:
+  CodeStarConnectionArn:
+    Type: String
+    Description: ARN of CodeStar Connection (for GitHub)
+
+Resources:
+  # --- Managed Policies ---
+  BECodeDeployPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: lms-dev-be-code-deploy-policy
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ec2:CreateTags
+              - ec2:DeleteTags
+              - autoscaling:CreateOrUpdateTags
+              - autoscaling:DeleteTags
+            Resource: "*"
+  
+  AllowSSMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: lms-dev-policy-allow-ssm
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - ssm:GetParameter
+              - ssm:GetParameters
+            Resource:
+              - !Sub "arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/myapp/*"
+
+  CloudWatchAgentPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: lms-dev-policy-allow-cloudwatch
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - logs:CreateLogGroup
+              - logs:CreateLogStream
+              - logs:PutLogEvents
+              - cloudwatch:PutMetricData
+            Resource: "*"
+  
+  BECodePipelinePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: lms-dev-be-policy-codestar
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - codestar-connections:UseConnection
+            Resource: !Ref CodeStarConnectionArn
+
+  # --- Roles ---
+  BECodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-be-codebuild-role 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSCodeDeployFullAccess
+        - arn:aws:iam::aws:policy/CloudWatchLogsFullAccess
+
+  BECodeDeployServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-be-codedeploy-role 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codedeploy.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSCodeDeployRole
+        - !Ref BECodeDeployPolicy
+  
+  BECodePipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-be-codepipeline-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/AWSCodeDeployFullAccess
+        - arn:aws:iam::aws:policy/AWSCodeBuildDeveloperAccess
+        - !Ref BECodePipelinePolicy
+  
+  BEEC2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-be-ec2-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2RoleforAWSCodeDeploy
+        - !Ref AllowSSMPolicy
+        - !Ref CloudWatchAgentPolicy     
+  
+  EC2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Roles:
+        - !Ref BEEC2InstanceRole
+  
+  ## Lambda Role for Password Generator
+  PasswordLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-db-lambda-role 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/AmazonSSMFullAccess
+  
+  ## Lambda Role for Cloudfront Invalidation
+  InvalidateCloudFrontLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-fe-lambda-role 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: lms-dev-fe-policy-cf-invalidation
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cloudfront:CreateInvalidation
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - codepipeline:PutJobSuccessResult
+                  - codepipeline:PutJobFailureResult
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: "*"
+
+
+Outputs:
+  BECodeBuildRole:
+    Value: !GetAtt BECodeBuildRole.Arn
+  BECodeDeployServiceRole:
+    Value: !GetAtt BECodeDeployServiceRole.Arn
+  BECodePipelineRole:
+    Value: !GetAtt BECodePipelineRole.Arn
+  EC2InstanceProfile:
+    Value: !Ref EC2InstanceProfile
+  PasswordLambdaRole:
+    Value: !GetAtt PasswordLambdaRole.Arn
+  InvalidateCloudFrontLambdaRole:
+    Value: !GetAtt InvalidateCloudFrontLambdaRole.Arn

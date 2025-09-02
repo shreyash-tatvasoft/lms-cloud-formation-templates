@@ -96,6 +96,7 @@ Resources:
         VpcId: !GetAtt VPCStack.Outputs.VpcId
         Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
         Subnet2: !GetAtt VPCStack.Outputs.PrivateSubnet2
+        PasswordLambdaRole: !GetAtt IAMRolesStack.Outputs.PasswordLambdaRole
       TimeoutInMinutes: 15
   
   # RDS For Aurora
@@ -109,7 +110,17 @@ Resources:
         VpcId: !GetAtt VPCStack.Outputs.VpcId
         Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
         Subnet2: !GetAtt VPCStack.Outputs.PrivateSubnet2
+        PasswordLambdaRole: !GetAtt IAMRolesStack.Outputs.PasswordLambdaRole
       TimeoutInMinutes: 15
+
+  # IAM Roles Stack
+  IAMRolesStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/7.IAM-Stack.yml
+      Parameters:
+        CodeStarConnectionArn: !Ref CodeStarConnectionArn
+      TimeoutInMinutes: 10
   
   # BE Stack with CI/CD
   BackendStack:
@@ -141,6 +152,10 @@ Resources:
           - !GetAtt RDSStack.Outputs.RDSSecurityGroupId
         KeyName : !Ref KeyName
         AlarmEmail: !Ref SubscriberEmail
+        CodeBuildRole: !GetAtt IAMRolesStack.Outputs.BECodeBuildRole
+        CodeDeployServiceRole: !GetAtt IAMRolesStack.Outputs.BECodeDeployServiceRole
+        CodePipelineRole: !GetAtt IAMRolesStack.Outputs.BECodePipelineRole
+        EC2InstanceProfileName: !GetAtt IAMRolesStack.Outputs.EC2InstanceProfile
       TimeoutInMinutes: 10
   
   # FE Stack with CI/CD
@@ -154,6 +169,7 @@ Resources:
         GitHubRepo: !Ref GitHubRepoFE
         GitHubBranch: !Ref GitHubBranchFE
         BackendURL: !GetAtt BackendStack.Outputs.BackendCloudFrontURL
+        InvalidateCloudFrontLambdaRole: !GetAtt IAMRolesStack.Outputs.InvalidateCloudFrontLambdaRole
       TimeoutInMinutes: 10
 
 Outputs:
