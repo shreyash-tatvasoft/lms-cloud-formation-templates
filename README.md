@@ -1,6 +1,6 @@
 # AWS 3-Tier Web Application Templates
 
-This repository contains **AWS CloudFormation templates** for deploying a complete 3-Tier Web Application infrastructure. It includes separate templates for networking, database, backend, frontend, and a master stack to orchestrate deployment.
+This repository contains **AWS CloudFormation templates** for deploying a complete 3-Tier Web Application infrastructure. It includes separate templates for networking, database, backend, frontend, IAM, and a master stack to orchestrate deployment.
 
 ---
 
@@ -22,6 +22,9 @@ The architecture follows a **3-Tier design**:
 4. **Networking Layer**  
    - Configured **VPC, subnets, route tables, security groups**, and other networking essentials.
 
+5. **IAM Layer**  
+   - Centralized **IAM Roles and Policies** for EC2, CodePipeline, CodeBuild, and other services.
+
 ---
 
 ## 📂 Templates
@@ -33,7 +36,18 @@ The repository contains the following **CloudFormation templates**:
 - **Purpose:** Orchestrates the deployment of all other stacks in a sequential manner.  
 - **Usage:** Deploy this stack first to automatically trigger all dependent stacks.
 
-### 2. VPC Configuration
+### 2. IAM Configuration
+- **File:** `IAM-Setup.yml`  
+- **Purpose:** Creates required **IAM Roles and Policies** for the project.  
+- **Features:**
+  - IAM Roles for:
+    - **EC2 Instances** (access to S3, CloudWatch logs, SSM)  
+    - **CodePipeline & CodeBuild** (access to GitHub/CodeCommit, S3, ECR, CloudFormation, Deploy)  
+    - **Frontend & Backend Deployments** (permissions for S3, CloudFront invalidation, AutoScaling, ALB registration, etc.)  
+  - Managed & custom inline policies as needed  
+  - IAM Instance Profiles for EC2  
+
+### 3. VPC Configuration
 - **File:** `VPC-Setup.yml`  
 - **Purpose:** Sets up the networking layer:
   - VPC with public and private subnets  
@@ -41,7 +55,7 @@ The repository contains the following **CloudFormation templates**:
   - Route Tables and associated routes  
   - Security Groups for BE and FE
 
-### 3. RDS Stack
+### 4. RDS Stack
 - **File:** `RDS-Setup.yml`  
 - **Purpose:** Creates a managed **RDS instance** in private subnets.  
 - **Supports:** MySQL, PostgreSQL, or other engines.  
@@ -49,7 +63,7 @@ The repository contains the following **CloudFormation templates**:
   - Multi-AZ support (optional)  
   - Parameter Groups and Security Groups for secure DB access
 
-### 4. Backend Setup (BE)
+### 5. Backend Setup (BE)
 - **File:** `BE-Setup.yml`  
 - **Purpose:** Deploys backend services with CI/CD pipeline.  
 - **Components:**
@@ -58,8 +72,8 @@ The repository contains the following **CloudFormation templates**:
   - **CodePipeline** integration for CI/CD from source repository to deployment  
   - CloudWatch monitoring & logging
 
-### 5. Frontend Setup (FE)
-- **File:** `frontend-stack.yaml`  
+### 6. Frontend Setup (FE)
+- **File:** `FE-Setup.yml`  
 - **Purpose:** Deploys frontend with CI/CD pipeline using **CloudFront**.  
 - **Components:**
   - S3 bucket to host static files  
@@ -71,11 +85,12 @@ The repository contains the following **CloudFormation templates**:
 
 ## ⚡ Deployment Order
 
-1. Deploy `VPC-Setup.yml` to create networking resources.  
-2. Deploy `RDS-Setup.yml` to create the database.  
-3. Deploy `BE-Setup.yml` to launch backend services and CI/CD pipeline.  
-4. Deploy `FE-Setup.yml` to launch frontend services and CI/CD pipeline.  
-5. Alternatively, deploy `Master-template.yml` to deploy all stacks sequentially.
+1. Deploy `IAM-Setup.yml` to manage roles and policies.  
+2. Deploy `VPC-Setup.yml` to manage networking resources.  
+3. Deploy `RDS-Setup.yml` to manage the database.  
+4. Deploy `BE-Setup.yml` to launch backend services and CI/CD pipeline.  
+5. Deploy `FE-Setup.yml` to launch frontend services and CI/CD pipeline.  
+6. Alternatively, deploy `Master-template.yml` to deploy all stacks sequentially.
 
 ---
 
@@ -94,5 +109,7 @@ The repository contains the following **CloudFormation templates**:
 - **Scalable backend** with ASG and ALB  
 - **Global frontend delivery** with CloudFront  
 - **Secure network design** using VPC, private/public subnets, and security groups  
+- **Centralized IAM** roles and policies for consistent security  
 - Master stack for **sequential orchestration**  
 
+---
