@@ -8,9 +8,6 @@ Parameters:
   GitHubBranch:
     Type: String
     Default: main
-  ArtifactBucket:
-    Type: String
-    Description: S3 bucket for artifacts
   ConnectionArn:
     Type: String
     Description: ARN of CodeStar connection to GitHub
@@ -19,6 +16,12 @@ Parameters:
     Type: AWS::EC2::KeyPair::KeyName
 
 Resources:
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: "lms-dev-s3-infra-templates-12127854"
+      
   PipelineRole:
     Type: AWS::IAM::Role
     Properties:
