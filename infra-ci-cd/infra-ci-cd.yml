@@ -95,7 +95,7 @@ Resources:
                 Capabilities: CAPABILITY_NAMED_IAM
                 TemplatePath: SourceOutput::infra-ci-cd/master.yml
                 RoleArn: !GetAtt CloudFormationRole.Arn
-                ParameterOverrides: !Sub '{"KeyName":"${KeyName}","InstanceName":"${InstanceName}"}'
+                ParameterOverrides: !Sub '{"KeyName":"${KeyName}","InstanceName":"${InstanceName}"},"ArtifactBucket":"${ArtifactBucket}"'
               InputArtifacts:
                 - Name: SourceOutput
 
