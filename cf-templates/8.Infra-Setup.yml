@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Pipeline to deploy nested stacks from GitHub using CodeStar
+
+Parameters:
+  VpcCIDR:
+    Type: String
+    Default: 10.0.0.0/16
+    Description: CIDR block for the VPC
+
+  PublicSubnet1CIDR:
+    Type: String
+    Default: 10.0.1.0/24
+    Description: CIDR block for the first public subnet
+
+  PublicSubnet2CIDR:
+    Type: String
+    Default: 10.0.2.0/24
+    Description: CIDR block for the second public subnet
+  
+  PrivateSubnet1CIDR:
+    Type: String
+    Default: 10.0.3.0/24
+    Description: CIDR block for the first private subnet
+
+  PrivateSubnet2CIDR:
+    Type: String
+    Default: 10.0.4.0/24
+    Description: CIDR block for the second private subnet
+  
+  KeyName:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Existing EC2 KeyPair for SSH access
+  
+  CodeStarConnectionArn:
+    Type: String
+    Description: ARN of CodeStar Connection (for GitHub)
+  
+  GitHubRepoBE:
+    Type: String
+    Description: GitHub repository in the format owner/repo for BE Setup
+
+  GitHubBranchBE:
+    Type: String
+    Default: main
+  
+  JwtSecretKey:
+    Type: String
+    Default: supersecretjwtkey
+  
+  GitHubRepoFE:
+    Type: String
+    Description: GitHub repository in the format owner/repo for FE Setup
+
+  GitHubBranchFE:
+    Type: String
+    Default: main
+  
+  SubscriberEmail:
+    Type: String
+    Description: Email address to subscribe to SNS topic
+  
+  UseAuroraForDB:
+    Type: String
+    Default: "false"
+    AllowedValues: ["true", "false"]
+    Description: "Set to true to deploy Aurora DB instead of standard RDS"
+
+
+Resources:
+
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: "lms-dev-s3-infra-templates-12127854"
+      
+  PipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-infra-code-pipeline-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codepipeline.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PipelinePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:PutObject
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:GetBucketLocation
+                  - s3:ListBucket
+                Resource: !GetAtt ArtifactBucket.Arn
+              - Effect: Allow
+                Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource:
+                  - !GetAtt CodeBuildRole.Arn
+                  - !GetAtt CloudFormationRole.Arn
+              - Effect: Allow
+                Action: 
+                  - codestar-connections:UseConnection
+                Resource: !Ref ConnectionArn
+
+
+  CodeBuildRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-infra-code-build-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CodeBuildPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                  - s3:GetObjectVersion
+                Resource: !Sub "${ArtifactBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: arn:aws:logs:*:*:*
+
+
+  CloudFormationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: lms-dev-infra-cloud-formation-role
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: cloudformation.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: CloudFormationExecutionPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                  - s3:*
+                  - iam:*
+                  - rds:*
+                  - autoscaling:*
+                  - elasticloadbalancing:*
+                  - cloudformation:CreateStack
+                  - cloudformation:UpdateStack
+                  - cloudformation:DeleteStack
+                  - cloudformation:DescribeStacks
+                  - cloudformation:GetTemplate
+                  - cloudformation:ValidateTemplate
+                Resource: "*"
+  
+  CodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: UploadTemplatesToS3
+      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:6.0
+        Type: LINUX_CONTAINER
+        EnvironmentVariables:
+          - Name: ARTIFACT_BUCKET
+            Value: !Ref ArtifactBucket
+      Source:
+        Type: CODEPIPELINE
+      TimeoutInMinutes: 10
+
+  Pipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name: lms-dev-infra-pipeline
+      RoleArn: !GetAtt PipelineRole.Arn
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactBucket
+      Stages:
+        - Name: Source
+          Actions:
+            - Name: GitHubSource
+              ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              OutputArtifacts:
+                - Name: SourceOutput
+              Configuration:
+                ConnectionArn: !Ref ConnectionArn
+                FullRepositoryId: !Ref GitHubRepo
+                BranchName: !Ref GitHubBranch
+
+        - Name: Build
+          Actions:
+            - Name: UploadToS3
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              InputArtifacts:
+                - Name: SourceOutput
+              OutputArtifacts:
+                - Name: BuildOutput
+              Configuration:
+                ProjectName: !Ref CodeBuildProject
+
+        - Name: Deploy
+          Actions:
+            - Name: CFNDeploy
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: CloudFormation
+                Version: 1
+              InputArtifacts:
+                - Name: BuildOutput
+              Configuration:
+                ActionMode: CREATE_UPDATE
+                StackName: NestedMasterStack
+                TemplatePath: BuildOutput::infra-ci-cd/master.yml
+                Capabilities: CAPABILITY_NAMED_IAM
+                RoleArn:  !GetAtt CloudFormationRole.Arn
+                ParameterOverrides: !Sub |
+                  {
+                    "ArtifactBucket": "${ArtifactBucket}",
+                    "KeyName": "${KeyName}",
+                    "VpcCIDR": "${VpcCIDR}",
+                    "PublicSubnet1CIDR": "${PublicSubnet1CIDR}",
+                    "PublicSubnet2CIDR": "${PublicSubnet2CIDR}",
+                    "PrivateSubnet1CIDR": "${PrivateSubnet1CIDR}",
+                    "PrivateSubnet2CIDR": "${PrivateSubnet2CIDR}",
+                    "CodeStarConnectionArn": "${CodeStarConnectionArn}",
+                    "GitHubRepoBE": "${GitHubRepoBE}",
+                    "GitHubBranchBE": "${GitHubBranchBE}",
+                    "JwtSecretKey": "${JwtSecretKey}",
+                    "GitHubRepoFE": "${GitHubRepoFE}",
+                    "GitHubBranchFE": "${GitHubBranchFE}",
+                    "SubscriberEmail": "${SubscriberEmail}",
+                    "UseAuroraForDB": "${UseAuroraForDB}"
+                  }
+
+Outputs:
+  PipelineName:
+    Description: Name of the CodePipeline
+    Value: !Ref Pipeline
+
+  ArtifactBucketOutput:
+    Description: S3 Bucket where templates are uploaded
+    Value: !Ref ArtifactBucket

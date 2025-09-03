@@ -59,6 +59,10 @@ Parameters:
     Type: String
     Description: Email address to subscribe to SNS topic
   
+  ArtifactBucket:
+    Type: String
+    Description: S3 bucket where child templates are stored
+  
   UseAuroraForDB:
     Type: String
     Default: "false"
@@ -76,7 +80,7 @@ Resources:
   VPCStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/2.VPC-Setup.yml
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/cf-templates/2.VPC-Setup.yml"
       Parameters:
         VpcCIDR : !Ref VpcCIDR
         PublicSubnet1CIDR: !Ref PublicSubnet1CIDR
@@ -91,7 +95,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: VPCStack
     Properties:
-      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/3.RDS-Setup.yml
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/cf-templates/3.RDS-Setup.yml"
       Parameters:
         VpcId: !GetAtt VPCStack.Outputs.VpcId
         Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
@@ -105,7 +109,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: VPCStack
     Properties:
-      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/6.RDS-Aurora.yml
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/cf-templates/6.RDS-Aurora.yml"
       Parameters:
         VpcId: !GetAtt VPCStack.Outputs.VpcId
         Subnet1: !GetAtt VPCStack.Outputs.PrivateSubnet1
@@ -117,7 +121,7 @@ Resources:
   IAMRolesStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/7.IAM-Stack.yml
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/cf-templates/7.IAM-Stack.yml"
       Parameters:
         CodeStarConnectionArn: !Ref CodeStarConnectionArn
       TimeoutInMinutes: 10
@@ -126,7 +130,7 @@ Resources:
   BackendStack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/4.BE-Setup.yml
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/cf-templates/4.BE-Setup.yml"
       Parameters:
         InstanceType: t2.micro
         VpcId: !GetAtt VPCStack.Outputs.VpcId 
@@ -163,7 +167,7 @@ Resources:
     Type: AWS::CloudFormation::Stack
     DependsOn: BackendStack
     Properties:
-      TemplateURL: https://lms-all-stacks.s3.ap-south-1.amazonaws.com/3.LMS-All-Templates/5.FE-Setup.yml
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/cf-templates/5.FE-Setup.yml"
       Parameters:
         CodeStarConnectionArn: !Ref CodeStarConnectionArn 
         GitHubRepo: !Ref GitHubRepoFE

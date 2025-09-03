@@ -3,7 +3,7 @@ phases:
   build:
     commands:
       - echo "Uploading templates to S3..."
-      - aws s3 cp infra-ci-cd/ s3://$ARTIFACT_BUCKET/infra-ci-cd/ --recursive
+      - aws s3 cp cf-templates/ s3://$ARTIFACT_BUCKET/cf-templates/ --recursive
 artifacts:
   files:
-    - infra-ci-cd/*
+    - cf-templates/*
