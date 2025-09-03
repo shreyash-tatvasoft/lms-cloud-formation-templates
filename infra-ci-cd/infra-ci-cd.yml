@@ -43,6 +43,7 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              # Artifacts
               - Effect: Allow
                 Action:
                   - s3:GetObject
@@ -53,10 +54,12 @@ Resources:
                 Action:
                   - s3:ListBucket
                 Resource: !GetAtt ArtifactBucket.Arn
+              # Use CodeStar connection
               - Effect: Allow
                 Action:
                   - codestar-connections:UseConnection
                 Resource: !Ref ConnectionArn
+              # Let pipeline call CFN and pass the CFN service role
               - Effect: Allow
                 Action:
                   - cloudformation:CreateStack
@@ -66,9 +69,14 @@ Resources:
                   - cloudformation:DescribeStackEvents
                   - cloudformation:GetTemplate
                   - cloudformation:ValidateTemplate
+                  - cloudformation:CreateChangeSet
+                  - cloudformation:ExecuteChangeSet
                 Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: !GetAtt CloudFormationRole.Arn
 
-  ## IAM Role for CloudFormation Deploy Action
+  ## IAM Role assumed by CloudFormation during deploy
   CloudFormationRole:
     Type: AWS::IAM::Role
     Properties:
@@ -84,22 +92,31 @@ Resources:
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
+              # If CFN needs to read artifacts (usually not needed for TemplatePath, but keep modest access)
               - Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:GetObjectVersion
-                  - s3:ListBucket
                 Resource: !Sub "${ArtifactBucket.Arn}/*"
               - Effect: Allow
-                Action:
-                  - iam:PassRole
-                Resource: "*"
+                Action: s3:ListBucket
+                Resource: !GetAtt ArtifactBucket.Arn
+              # Minimum EC2 perms for your ec2.yml (SG + EC2 instance + tags + describe)
               - Effect: Allow
                 Action:
-                  - ec2:*
-                  - iam:*
-                  - logs:*
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
+                  - ec2:CreateTags
+                  - ec2:DeleteTags
+                  - ec2:CreateSecurityGroup
+                  - ec2:DeleteSecurityGroup
+                  - ec2:AuthorizeSecurityGroupIngress
+                  - ec2:RevokeSecurityGroupIngress
+                  - ec2:Describe*
                 Resource: "*"
+              - Effect: Allow
+                Action: iam:PassRole
+                Resource: arn:aws:iam::979566283645:role/*
 
   ## CodePipeline
   InfraPipeline:
@@ -124,6 +141,7 @@ Resources:
                 BranchName: !Ref BranchName
               OutputArtifacts:
                 - Name: SourceOutput
+
         - Name: Deploy
           Actions:
             - Name: CFNDeployMaster
@@ -138,12 +156,8 @@ Resources:
                 Capabilities: CAPABILITY_NAMED_IAM
                 TemplatePath: SourceOutput::infra-ci-cd/master.yml
                 RoleArn: !GetAtt CloudFormationRole.Arn
-                ## Optional: pass parameters into master stack
-                ParameterOverrides: !Sub |
-                  {
-                    "KeyName": "${KeyName}" ,
-                    "InstanceName": "${InstanceName}",
-                  }
+                # IMPORTANT: ParameterOverrides must be a single-line JSON string.
+                ParameterOverrides: !Sub '{"KeyName":"${KeyName}","InstanceName":"${InstanceName}"}'
               InputArtifacts:
                 - Name: SourceOutput
 
