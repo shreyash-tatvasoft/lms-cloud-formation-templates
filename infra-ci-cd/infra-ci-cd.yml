@@ -39,43 +39,8 @@ Resources:
             Principal:
               Service: cloudformation.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CloudFormationDeployPermissions
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              # Read from artifacts bucket
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                Resource: !Sub "${ArtifactBucket.Arn}/*"
-              - Effect: Allow
-                Action: s3:ListBucket
-                Resource: !GetAtt ArtifactBucket.Arn
-
-              # EC2 permissions
-              - Effect: Allow
-                Action:
-                  - ec2:RunInstances
-                  - ec2:TerminateInstances
-                  - ec2:CreateTags
-                  - ec2:DeleteTags
-                  - ec2:CreateSecurityGroup
-                  - ec2:DeleteSecurityGroup
-                  - ec2:AuthorizeSecurityGroupIngress
-                  - ec2:RevokeSecurityGroupIngress
-                  - ec2:Describe*
-                Resource: "*"
-
-              # Allow CloudFormation to pass instance profiles if needed
-              - Effect: Allow
-                Action: iam:PassRole
-                Resource: "arn:aws:iam::${AWS::AccountId}:role/*"
-                Condition:
-                  StringEqualsIfExists:
-                    iam:PassedToService:
-                      - ec2.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
 
   ## IAM Role for CodePipeline
   CodePipelineRole:
@@ -89,48 +54,8 @@ Resources:
             Principal:
               Service: codepipeline.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CodePipelinePermissions
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              # Artifacts
-              - Effect: Allow
-                Action:
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:PutObject
-                Resource: !Sub "${ArtifactBucket.Arn}/*"
-              - Effect: Allow
-                Action: s3:ListBucket
-                Resource: !GetAtt ArtifactBucket.Arn
-
-              # Use CodeStar connection
-              - Effect: Allow
-                Action: codestar-connections:UseConnection
-                Resource: !Ref ConnectionArn
-
-              # Allow pipeline to manage CloudFormation stacks
-              - Effect: Allow
-                Action:
-                  - cloudformation:CreateStack
-                  - cloudformation:UpdateStack
-                  - cloudformation:DeleteStack
-                  - cloudformation:DescribeStacks
-                  - cloudformation:DescribeStackEvents
-                  - cloudformation:GetTemplate
-                  - cloudformation:ValidateTemplate
-                  - cloudformation:CreateChangeSet
-                  - cloudformation:ExecuteChangeSet
-                Resource: "*"
-
-              # Critical fix: Allow CodePipeline to pass CloudFormationRole
-              - Effect: Allow
-                Action: iam:PassRole
-                Resource: !GetAtt CloudFormationRole.Arn
-                Condition:
-                  StringEquals:
-                    iam:PassedToService: cloudformation.amazonaws.com
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
 
   ## CodePipeline
   InfraPipeline:
