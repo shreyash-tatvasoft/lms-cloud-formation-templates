@@ -1,0 +1,9 @@
+version: 0.2
+phases:
+  build:
+    commands:
+      - echo "Uploading templates to S3..."
+      - aws s3 cp infra-ci-cd/ s3://$ARTIFACT_BUCKET/infra-ci-cd/ --recursive
+artifacts:
+  files:
+    - infra-ci-cd/*

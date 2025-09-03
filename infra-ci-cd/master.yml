@@ -16,7 +16,7 @@ Resources:
   EC2Stack:
     Type: AWS::CloudFormation::Stack
     Properties:
-      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/ec2.yml"
+      TemplateURL: !Sub "https://${ArtifactBucket}.s3.amazonaws.com/infra-ci-cd/ec2.yml"
       Parameters:
         KeyName: !Ref KeyName
         InstanceName: !Ref InstanceName
