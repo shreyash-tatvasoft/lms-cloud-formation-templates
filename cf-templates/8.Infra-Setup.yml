@@ -35,6 +35,14 @@ Parameters:
     Type: String
     Description: ARN of CodeStar Connection (for GitHub)
   
+  GitHubRepoInfra:
+    Type: String
+    Description: GitHub repo in format owner/repo (e.g., myuser/myrepo)
+
+  GitHubBranchInfra:
+    Type: String
+    Default: main
+  
   GitHubRepoBE:
     Type: String
     Description: GitHub repository in the format owner/repo for BE Setup
@@ -120,8 +128,7 @@ Resources:
               - Effect: Allow
                 Action: 
                   - codestar-connections:UseConnection
-                Resource: !Ref ConnectionArn
-
+                Resource: !Ref CodeStarConnectionArn
 
   CodeBuildRole:
     Type: AWS::IAM::Role
@@ -152,7 +159,6 @@ Resources:
                   - logs:PutLogEvents
                 Resource: arn:aws:logs:*:*:*
 
-
   CloudFormationRole:
     Type: AWS::IAM::Role
     Properties:
@@ -164,27 +170,9 @@ Resources:
             Principal:
               Service: cloudformation.amazonaws.com
             Action: sts:AssumeRole
-      Policies:
-        - PolicyName: CloudFormationExecutionPolicy
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Effect: Allow
-                Action:
-                  - ec2:*
-                  - s3:*
-                  - iam:*
-                  - rds:*
-                  - autoscaling:*
-                  - elasticloadbalancing:*
-                  - cloudformation:CreateStack
-                  - cloudformation:UpdateStack
-                  - cloudformation:DeleteStack
-                  - cloudformation:DescribeStacks
-                  - cloudformation:GetTemplate
-                  - cloudformation:ValidateTemplate
-                Resource: "*"
-  
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AdministratorAccess
+
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
@@ -223,9 +211,9 @@ Resources:
               OutputArtifacts:
                 - Name: SourceOutput
               Configuration:
-                ConnectionArn: !Ref ConnectionArn
-                FullRepositoryId: !Ref GitHubRepo
-                BranchName: !Ref GitHubBranch
+                ConnectionArn: !Ref CodeStarConnectionArn
+                FullRepositoryId: !Ref GitHubRepoInfra
+                BranchName: !Ref GitHubBranchInfra
 
         - Name: Build
           Actions:
@@ -255,7 +243,7 @@ Resources:
               Configuration:
                 ActionMode: CREATE_UPDATE
                 StackName: NestedMasterStack
-                TemplatePath: BuildOutput::infra-ci-cd/master.yml
+                TemplatePath: BuildOutput::cf-templates/1.Master-template.yml
                 Capabilities: CAPABILITY_NAMED_IAM
                 RoleArn:  !GetAtt CloudFormationRole.Arn
                 ParameterOverrides: !Sub |
